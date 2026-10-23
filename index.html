@@ -4455,7 +4455,7 @@ function gateBody(){
     <label>Почта<input id="gEm" type="email" autocomplete="username"></label>
     <label>Пароль<input id="gPw" type="password" autocomplete="current-password"></label>
     <div id="gErr" class="gerr">${esc(CL.denied || '')}</div>
-    <button class="btn pri" id="gGo">Войти</button></div>`;
+    <button class="btn pri" id="gGo">Войти</button><p class="gmuted" style="margin:12px 0 0;font-size:12px">Сборка 23.10.2026 · v6 · <a href="check.html">проверка связи</a></p></div>`;
 }
 function gateShow(){
   let g = document.getElementById('gate');
@@ -4479,7 +4479,7 @@ async function gateGo(){
     await clAfterLogin(data.user);
     if (clGated()) { const e2 = document.getElementById('gErr'); if (e2 && CL.denied) e2.textContent = CL.denied; }
     else toast('Вы вошли: ' + (CL.name || em)); }
-  catch(e) { err.textContent = clErrText(e); }
+  catch(e) { console.error('[gate] вход', e); err.textContent = clErrText(e) + ' [шаг: вход; ' + (e && e.name || '') + ': ' + (e && e.message || e) + ']'; }
 }
 /* ---------- подключение ---------- */
 async function clInit(){
@@ -4506,7 +4506,7 @@ function clErrText(e){ const m = (e && e.message) || String(e);
   return m; }
 async function clAfterLogin(user){
   CL.user = user; CL.role = ''; CL.name = ''; CL.denied = ''; let netErr = false;
-  try { const {data, error} = await CL.sb.from('members').select('role,name').eq('user_id', user.id).maybeSingle(); if (error) throw error; if (data) { CL.role = data.role; CL.name = data.name || ''; } } catch(e) { netErr = true; CL.denied = clErrText(e); }
+  try { const {data, error} = await CL.sb.from('members').select('role,name').eq('user_id', user.id).maybeSingle(); if (error) throw error; if (data) { CL.role = data.role; CL.name = data.name || ''; } } catch(e) { netErr = true; console.error('[gate] роль', e); CL.denied = clErrText(e) + ' [шаг: проверка роли; ' + (e && e.name || '') + ': ' + (e && e.message || e) + ']'; }
   if (!CL.role) {
     if (!netErr) CL.denied = 'Вход выполнен, но доступ не выдан. Обратитесь к администратору: вас нужно добавить в участники.';
     CL.user = null; try { await CL.sb.auth.signOut(); } catch(e) {} clPurge(); CL.checked = true; render(); return;
