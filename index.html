@@ -4721,6 +4721,19 @@ function agPlan(q, digs){
   let cols = cat.filter(e => e.hit === top && top > 0);
   if (cols.length > 1) { const best = Math.max(...cols.map(e => e.score)); cols = cols.filter(e => e.score >= best - 1.2); }
   cols = cols.slice(0, 6);
+  /* вопрос про отчет целиком («по звездам», «в ЦКП») или «все/невыполненные показатели» — берем все показатели этого отчета */
+  const wide = /все показател|все колонки|невыполн|не выполн|отста|по каждому|полностью|подробн|целиком/.test(ql);
+  if (cols.length) {
+    const titles = [...new Set(cols.map(e => e.title))];
+    const tHit = titles.filter(tt => cols.some(e => e.title === tt && e.ht.some(h => mt.some(w => agMatch(h, w)))));
+    const pickT = tHit.length ? tHit : (wide && titles.length === 1 ? titles : []);
+    if (pickT.length) {
+      const all = agCatalog(digs).filter(e => pickT.includes(e.title));
+      all.sort((a, b) => (hasT(b.c) ? 1 : 0) - (hasT(a.c) ? 1 : 0));
+      const keep = new Set(cols.map(e => e.key)); all.forEach(e => { if (keep.size < 14) keep.add(e.key); });
+      cols = agCatalog(digs).filter(e => keep.has(e.key) && (pickT.includes(e.title) || cols.some(c => c.key === e.key)));
+    }
+  }
   return {tbs, wantTotal, weeks, wnote, cols, metricWords: mt, trend: /динам|измен|тренд|рост|падени|сравн|за все|по неделям|недел/.test(ql) || weeks.length > 1};
 }
 
@@ -4737,7 +4750,7 @@ function agContext(plan, maxChars){
       const t = d.tables.find(x => x.title === e.title); if (!t) return;
       const ci = (t.cols || []).findIndex(c => (c.g || '') === e.g && c.l === e.l); if (ci < 0) return;
       const rows = rowsWanted(d.tbs).filter(r => t.rows && t.rows[r]);
-      const parts = []; rows.forEach(r => { const v = t.rows[r][ci]; if (v == null) return; parts.push(`${r === TOTAL ? 'ММБ (итого)' : r} ${fmt(v, e.c.d)}`); (series[r] = series[r] || []).push({w: d, v}); });
+      const parts = []; rows.forEach(r => { const v = t.rows[r][ci]; if (v == null) return; parts.push(`${r === TOTAL ? 'ММБ (итого)' : r} ${fmt(v, e.c.d)}${hasT(e.c) ? ({good: ' (цель выполнена)', warn: ' (близко к цели)', bad: ' (ниже цели)'}[status(e.c, v)] || '') : ''}`); (series[r] = series[r] || []).push({w: d, v}); });
       if (parts.length) { block.push(`${agShort(d.period)}${d.name ? ' («' + d.name + '»)' : ''}: ${parts.join('; ')}`); used.weeks.add(d.id); used.reports.add(e.title); }
     });
     if (plan.trend && plan.weeks.length > 1) {
@@ -4754,7 +4767,7 @@ function agContext(plan, maxChars){
 const AG_SYS = 'Ты помощник руководителя по еженедельным дайджестам малого и микро бизнеса (ММБ) банка. Отвечай только по блоку «Данные» ниже. ' +
   'Не выдумывай числа и не округляй их иначе, чем в данных. Если данных не хватает для ответа — прямо скажи об этом и предложи, что уточнить (показатель, ТБ, неделю). ' +
   'Формат ответа: сначала короткий вывод одним-двумя предложениями, затем при необходимости перечень по неделям или ТБ. ' +
-  'Для показателей с целью отмечай, выполнена ли цель; для динамики указывай изменение и в единицах, и в процентах. Если в данных всего одна-две точки, так и скажи, не делай сильных выводов. Таблицы пиши в формате markdown (строки с |). Остальной текст — простой, без разметки: НЕ используй заголовки со знаком #, горизонтальные линии ---, блоки кода и слово markdown; не оборачивай ответ в ```. Для выделения используй только **жирный** для коротких подписей и списки через дефис. Ответ начинай сразу с вывода. Если вопрос уточняющий (например «в виде таблицы», «а по другому ТБ», «короче»), опирайся на предыдущие сообщения диалога и на присланные данные и выполни просьбу, не отвечай, что показатель не найден. Пиши по-русски, спокойно и по делу, без вступлений и без извинений.';
+  'Для показателей с целью отмечай, выполнена ли цель; для динамики указывай изменение и в единицах, и в процентах. Если в данных всего одна-две точки, так и скажи, не делай сильных выводов. Таблицы пиши в формате markdown (строки с |). Остальной текст — простой, без разметки: НЕ используй заголовки со знаком #, горизонтальные линии ---, блоки кода и слово markdown; не оборачивай ответ в ```. Для выделения используй только **жирный** для коротких подписей и списки через дефис. Ответ начинай сразу с вывода. Названия ТБ не расшифровывай и не придумывай (ББ, ВВБ, ДВБ, МБ, ПБ, СЗБ, СибБ, СРБ, УБ, ЦЧБ, ЮЗБ — так и пиши). Если у числа нет шкалы или знаменателя (например «3» без «из N»), не придумывай его («3 из 5»), а скажи, что в данных только число. Цель и статус в скобках после значения взяты из отчета, опирайся на них. Если вопрос уточняющий (например «в виде таблицы», «а по другому ТБ», «короче»), опирайся на предыдущие сообщения диалога и на присланные данные и выполни просьбу, не отвечай, что показатель не найден. Пиши по-русски, спокойно и по делу, без вступлений и без извинений.';
 
 async function agCall(messages, opts){
   if (!CL.sb || !CL.user) throw new Error('Чтобы задавать вопросы, войдите в облако (кнопка в левом верхнем углу).');
@@ -4780,23 +4793,44 @@ async function agPlanLLM(q, plan, digs){
   plan.cols = n.slice(0, 6).map(i => cat[i - 1]); return plan;
 }
 
+
+/* «какие показатели больше всего отстают» — рейтинг по всем отчетам считаем здесь, без угадывания слов */
+function agRankCtx(q, digs){
+  const last = digs[digs.length - 1], prev = digs[digs.length - 2]; if (!last) return null;
+  const ql = String(q).toLowerCase().replace(/ё/g, 'е'); const nm = ql.match(/(\d+)\s*(?:самых|показател|худш|отста)/); const N = Math.min(15, Math.max(3, nm ? +nm[1] : 5));
+  const plan = agPlan(q, digs), rows = plan.tbs.length ? plan.tbs : [TOTAL], items = [];
+  last.tables.forEach(t => (t.cols || []).forEach((c, ci) => { if (!hasT(c)) return;
+    rows.forEach(r => { const v = t.rows && t.rows[r] && t.rows[r][ci]; if (v == null) return;
+      const pt = prev && prev.tables.find(x => x.title === t.title), pci = pt ? (pt.cols || []).findIndex(x => (x.g || '') === (c.g || '') && x.l === c.l) : -1;
+      const pv = pci >= 0 && pt.rows && pt.rows[r] ? pt.rows[r][pci] : null;
+      items.push({t, c, r, v, pv, pct: pctOfTarget(c, v)}); }); }));
+  items.sort((a, b) => a.pct - b.pct); const top = items.filter(x => x.pct < 1e6).slice(0, N);
+  if (!top.length) return null;
+  const text = `### Рейтинг самых отстающих от цели показателей · ${agShort(last.period)} · ${rows.map(r => r === TOTAL ? 'ММБ (итого)' : r).join(', ')} (посчитано по всем отчетам; выполнение = % от цели)\n` +
+    top.map((x, i) => `${i + 1}. Отчет «${x.t.title}» · ${agColLabel(x.c)} · ${x.r === TOTAL ? 'ММБ' : x.r}: факт ${fmt(x.v, x.c.d)}, цель ${fmt(+x.c.t, x.c.d)}, выполнение ${fmt(x.pct, 1)}%${x.pv != null ? `; неделей ранее ${fmt(x.pv, x.c.d)}` : ''}`).join('\n');
+  return {text, reports: [...new Set(top.map(x => x.t.title))], weeks: [agShort(last.period)].concat(prev ? [agShort(prev.period)] : [])};
+}
+
 async function agAsk(q){
   const digs = agDigs(); let plan = agPlan(q, digs);
+  const rankQ = /отста|худш|слаб|проблем|невыполн|не выполн|ниже цел|просел|хуже всего|горит/.test(String(q).toLowerCase()) && !plan.metricWords.filter(w => !/^(отста|показ|сильн|слаб|цел|худш|пробл|невып|выпол|больш|всего|горит|прос|хуже|ниже|самы|наибол)/.test(w)).length;
+  let rankCtx = null; if (rankQ) { try { rankCtx = agRankCtx(q, digs); } catch (e) { console.error(e); } }
   /* уточняющий вопрос («а в виде таблицы», «а по ЦЧБ», «за прошлую неделю») — берем показатели из прошлого вопроса */
   let followUp = false;
-  if (!plan.cols.length && AG.lastPlan) {
+  if (!rankCtx && !plan.cols.length && AG.lastPlan && AG.lastPlan.cols && AG.lastPlan.cols.length) {
     followUp = true; const L = AG.lastPlan;
     plan.cols = L.cols; if (!plan.tbs.length) plan.tbs = L.tbs;
     if (!plan.wnote && !/\d{1,2}\.\d{1,2}/.test(q)) { plan.weeks = L.weeks; plan.trend = L.trend; }
   }
-  if (!plan.cols.length) { try { plan = await agPlanLLM(q, plan, digs); } catch (e) { /* без подбора моделью */ } }
-  if (!plan.cols.length) return {text: 'Не нашел в дайджестах подходящий показатель. Назовите его так, как он указан в отчете (например, «ФОТ», «ЧОД», «Эквайринг»), и при необходимости ТБ или неделю.', ctx: null};
-  const ctx = agContext(plan);
+  if (!rankCtx && !plan.cols.length && AG.lastRank) rankCtx = AG.lastRank;
+  if (!rankCtx && !plan.cols.length) { try { plan = await agPlanLLM(q, plan, digs); } catch (e) { /* без подбора моделью */ } }
+  if (!rankCtx && !plan.cols.length) return {text: 'Не нашел в дайджестах подходящий показатель. Назовите его так, как он указан в отчете (например, «ФОТ», «ЧОД», «Эквайринг»), и при необходимости ТБ или неделю.', ctx: null};
+  const ctx = rankCtx || agContext(plan);
   if (!ctx.text) return {text: 'Показатель нашелся, но по выбранным ТБ и неделям значений нет.', ctx: null};
   const hist = AG.hist.slice(-6).map(m => ({role: m.role, content: m.content}));
   const msgs = [{role: 'system', content: AG_SYS}].concat(hist, [{role: 'user', content: `Вопрос: ${q}\n\nДанные:\n${ctx.text}`}]);
   const r = await agCall(msgs);
-  AG.lastPlan = {cols: plan.cols, tbs: plan.tbs, weeks: plan.weeks, trend: plan.trend};
+  if (rankCtx) { AG.lastRank = rankCtx; AG.lastPlan = null; } else { AG.lastPlan = {cols: plan.cols, tbs: plan.tbs, weeks: plan.weeks, trend: plan.trend}; AG.lastRank = null; }
   AG.hist.push({role: 'user', content: q}, {role: 'assistant', content: r.answer || ''});
   return {text: r.answer || 'Модель вернула пустой ответ.', ctx};
 }
@@ -4891,7 +4925,7 @@ function agMount(){
     if (a === 'close') { AG.open = false; agRender(); }
     else if (a === 'send') { const i = $('#agIn'); agSend(i && i.value); }
     else if (a === 'sug') agSend(b.dataset.q);
-    else if (a === 'clear') { AG.msgs = []; AG.hist = []; AG.lastPlan = null; AG.ctxOpen = {}; agRender(); }
+    else if (a === 'clear') { AG.msgs = []; AG.hist = []; AG.lastPlan = null; AG.lastRank = null; AG.ctxOpen = {}; agRender(); }
     else if (a === 'ctx') { AG.ctxOpen[b.dataset.i] = !AG.ctxOpen[b.dataset.i]; agRender(true); }
     else if (a === 'retry') { const m = AG.msgs[+b.dataset.i]; AG.msgs.splice(+b.dataset.i - 1, 2); if (m && m.q) agSend(m.q); }
     else if (a === 'ping') agPing();
