@@ -60,7 +60,7 @@ $('#url').value = cfg.url || ''; $('#key').value = cfg.key || '';
 const T = [
   ['srv', '1. Сервер Supabase доступен'], ['read', '2. Чтение данных из базы'], ['write', '3. Отправка данных в базу'],
   ['back', '4. Получение отправленного обратно'], ['rt', '5. Мгновенное обновление (websocket)'], ['auth', '6. Вход по почте и паролю'],
-  ['giga1', '7. GigaChat: сервер авторизации (ngw.devices.sberbank.ru)'], ['giga2', '8. GigaChat: API (api.giga.chat / gigachat.devices.sberbank.ru)']];
+  ['giga1', '7. GigaChat: функция в Supabase получает токен и список моделей'], ['giga2', '8. GigaChat: запрос к модели и ответ']];
 const R = {};
 function draw(){ $('#res').innerHTML = T.map(([k, l]) => { const r = R[k] || {s:'wait', t:'ожидает'}; return `<tr><td>${l}</td><td><span class="st ${r.s}">${r.t}</span></td><td><small>${(r.d||'').replace(/</g,'&lt;')}</small></td></tr>`; }).join(''); }
 const set = (k, s, t, d) => { R[k] = {s, t, d}; draw(); };
@@ -107,19 +107,34 @@ async function run(){
   else set('rt', rtStatus === 'SUBSCRIBED' ? 'part' : 'fail', rtStatus === 'SUBSCRIBED' ? 'частично' : 'не работает', 'статус канала: ' + rtStatus + (rtStatus === 'SUBSCRIBED' ? '. Подключились, но событие не пришло — проверьте, что setup.sql добавил таблицу в Realtime' : '. Websocket, скорее всего, режет прокси — конструктор будет обновляться опросом'));
   try { sb.removeChannel(ch); } catch(e) {}
   // 6
-  const em = $('#email').value.trim(), pw = $('#pass').value;
+  let authOk = false; const em = $('#email').value.trim(), pw = $('#pass').value;
   if (!em) set('auth', 'wait', 'не задано', 'введите почту и пароль пользователя, созданного в Supabase → Authentication');
   else { t0 = performance.now();
     try { const {data, error} = await withTO(sb.auth.signInWithPassword({email:em, password:pw}), 10000); if (error) throw error;
       const m = await sb.from('members').select('role,name').eq('user_id', data.user.id).maybeSingle();
       const d = await sb.from('digests').select('id', {count:'exact', head:true});
       set('auth', 'ok', 'вход выполнен', 'роль: ' + ((m.data && m.data.role) || 'не назначена — добавьте строку в members') + ' · дайджестов в базе: ' + (d.count ?? '—') + ' · ' + ms(t0));
-      await sb.auth.signOut(); }
+      authOk = true; }
     catch(e) { set('auth', 'fail', 'ошибка', e.message || String(e)); } }
-  // 7-8
-  const g1 = await reach('https://ngw.devices.sberbank.ru:9443/api/v2/oauth'); set('giga1', g1.ok ? 'ok' : 'fail', g1.ok ? 'сеть открыта' : 'закрыто', g1.d);
-  const g2a = await reach('https://api.giga.chat/'), g2b = await reach('https://gigachat.devices.sberbank.ru/api/v1/models');
-  set('giga2', g2a.ok || g2b.ok ? 'ok' : 'fail', g2a.ok || g2b.ok ? 'сеть открыта' : 'закрыто', 'api.giga.chat: ' + g2a.d + ' · gigachat.devices.sberbank.ru: ' + g2b.d);
+  // 7-8: GigaChat через Edge Function (к GigaChat ходит сервер Supabase, а не браузер)
+  if (!authOk) { set('giga1', 'wait', 'нужен вход', 'введите почту и пароль выше: функция доступна только вошедшим'); set('giga2', 'wait', 'нужен вход', 'без входа запрос к модели не проверить'); }
+  else {
+    t0 = performance.now();
+    try { const {data, error} = await withTO(sb.functions.invoke('gigachat', {body:{ping:true}}), 30000);
+      if (error) { let m = error.message || String(error); try { const j = await error.context.json(); m = j.error || j.detail || m; } catch(_) {} throw new Error(m); }
+      if (!data || !data.ok) throw new Error((data && data.detail) || 'функция вернула ошибку');
+      set('giga1', 'ok', 'работает', 'токен получен · доступные модели: ' + (data.models || []).join(', ') + ' · выбрана: ' + data.model + ' · ' + ms(t0)); }
+    catch(e) { set('giga1', 'fail', 'ошибка', e.message || String(e)); }
+    t0 = performance.now();
+    try { const q = 'Ответь одним словом: сколько будет 2+3? Только цифра прописью.';
+      const {data, error} = await withTO(sb.functions.invoke('gigachat', {body:{messages:[{role:'user', content:q}], temperature:0, max_tokens:50}}), 45000);
+      if (error) { let m = error.message || String(error); try { const j = await error.context.json(); m = j.error || m; } catch(_) {} throw new Error(m); }
+      if (!data || !data.answer) throw new Error((data && data.error) || 'пустой ответ модели');
+      const okAns = /пять|5/i.test(data.answer);
+      set('giga2', okAns ? 'ok' : 'part', okAns ? 'модель отвечает' : 'ответ странный', 'вопрос: «' + q + '» · ответ модели: «' + data.answer.trim().slice(0, 120) + '» · модель: ' + (data.model || '—') + ' · токенов: ' + ((data.usage && data.usage.total_tokens) || '—') + ' · ' + ms(t0)); }
+    catch(e) { set('giga2', 'fail', 'ошибка', e.message || String(e)); }
+  }
+  if (authOk) { try { await sb.auth.signOut(); } catch(e) {} }
   const core = ['srv','read','write','back'].every(k => R[k].s === 'ok');
   $('#verdict').textContent = core ? '✔ База доступна в обе стороны — можно включать облачное хранение в конструкторе' : '✖ Связь с базой неполная — пришлите отчет (кнопка «Скопировать отчет»)';
   $('#verdict').style.color = core ? 'var(--good)' : 'var(--bad)';
