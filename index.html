@@ -4814,7 +4814,7 @@ function agRankCtx(q, digs){
 
 async function agAsk(q){
   const digs = agDigs(); let plan = agPlan(q, digs);
-  const rankQ = /отста|худш|слаб|проблем|невыполн|не выполн|ниже цел|просел|хуже всего|горит/.test(String(q).toLowerCase()) && !plan.metricWords.filter(w => !/^(тб|каки|терри|банк|отста|показ|сильн|слаб|цел|худш|пробл|невып|выпол|больш|всего|горит|прос|хуже|ниже|самы|наибол)/.test(w)).length;
+  const rankQ = /отста|низк|худш|слаб|проблем|невыполн|не выполн|ниже цел|просел|хуже всего|горит/.test(String(q).toLowerCase()) && !plan.metricWords.filter(w => !/^(тб|каки|терри|банк|низк|отста|показ|сильн|слаб|цел|худш|пробл|невып|выпол|больш|всего|горит|прос|хуже|ниже|самы|наибол)/.test(w)).length;
   let rankCtx = null; if (rankQ) { try { rankCtx = agRankCtx(q, digs); } catch (e) { console.error(e); } }
   /* уточняющий вопрос («а в виде таблицы», «а по ЦЧБ», «за прошлую неделю») — берем показатели из прошлого вопроса */
   let followUp = false;
@@ -4868,7 +4868,7 @@ function agSuggest(){
   const names = [];
   last.tables.forEach(t => (t.cols || []).forEach(c => { if (hasT(c) && names.length < 40) names.push(c.g ? c.g.split(',')[0] : c.l); }));
   const m = names.find(n => /фот|чод|ккд|нкк/i.test(n)) || names[0] || 'ФОТ';
-  return [`Динамика ${m} по ${tb}`, `Как менялся ${m} по ММБ за все недели`, 'Где самые низкие показатели в этом ТБ?'].slice(0, 3).concat(digs.length > 1 ? ['Что изменилось к прошлой неделе по ММБ?'] : []);
+  return [`Динамика ${m} по ${tb}`, `Как менялся ${m} по ММБ за все недели`, `Где самые низкие показатели у ${tb}?`, 'Какие 3 показателя у ММБ отстают сильнее всего и у каких ТБ?'].concat(digs.length > 1 ? ['Что изменилось к прошлой неделе по ММБ?'] : []);
 }
 function agHTML(){
   const ok = clOn();
