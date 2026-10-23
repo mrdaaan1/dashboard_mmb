@@ -4654,7 +4654,7 @@ const AG_TB = {'ББ': ['байкальск'], 'ВВБ': ['волго', 'вят�
 const AG_STOP = new Set(('и в во не что он на я с со как а то все она так его но да ты к у же вы за бы по только ее мне было вот от меня еще нет о из ему теперь когда даже ну ли если уже или ни быть был до вас нибудь вам ведь там потом себя ничего ей может они тут где есть надо ней для мы тебя их чем была сам чтоб без чего раз тоже себе под будет ж тогда кто этот того потому этого какой совсем ним здесь этом один почти мой тем чтобы нее сейчас были куда зачем всех можно при наконец два об другой после над больше тот через эти нас про всего них какая много три эту моя свою этой перед том такой им более всегда конечно между ' +
   'покажи показать дай скажи расскажи какая какие какое каково нужно хочу узнать посмотреть данные данным информация информацию мне пожалуйста ' +
   'динамика динамику динамике изменение изменения изменился изменилась изменились тренд неделя недели недель неделю неделе прошлой прошлая прошлую последней последняя текущей текущая текущую эту этой период периоде всем всех всё все банк банка банку банке банком банков менялся менялась менялись менялось менялся изменился измениться поменялся поменялась поменялось').split(' '));
-const AG_STOP_STEM = new Set(['менял','банку','банка','банко','банко','измен','поменя']);
+const AG_STOP_STEM = new Set(['показа','показ','тб','каки','терри','нужен','просто','банк','менял','банку','банка','банко','банко','измен','поменя']);
 const agTok = s => String(s == null ? '' : s).toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9+]+/).filter(Boolean);
 const agStem = w => w.length <= 4 ? w : w.slice(0, w.length >= 8 ? 6 : 5);
 const agMatch = (a, b) => a === b || (Math.min(a.length, b.length) >= 3 && Math.abs(a.length - b.length) <= 3 && (a.startsWith(b) || b.startsWith(a)));
@@ -4798,22 +4798,23 @@ async function agPlanLLM(q, plan, digs){
 function agRankCtx(q, digs){
   const last = digs[digs.length - 1], prev = digs[digs.length - 2]; if (!last) return null;
   const ql = String(q).toLowerCase().replace(/ё/g, 'е'); const nm = ql.match(/(\d+)\s*(?:самых|показател|худш|отста)/); const N = Math.min(15, Math.max(3, nm ? +nm[1] : 5));
-  const plan = agPlan(q, digs), rows = plan.tbs.length ? plan.tbs : [TOTAL], items = [];
+  const plan = agPlan(q, digs), byTb = plan.tbs.length > 0, rows = byTb ? plan.tbs : [TOTAL], tbsAll = last.tbs || [], items = [];
+  const cell = (d, t, c, r) => { const pt = d && d.tables.find(x => x.title === t.title); if (!pt) return null; const pci = (pt.cols || []).findIndex(x => (x.g || '') === (c.g || '') && x.l === c.l); return pci >= 0 && pt.rows && pt.rows[r] ? pt.rows[r][pci] : null; };
   last.tables.forEach(t => (t.cols || []).forEach((c, ci) => { if (!hasT(c)) return;
+    const tbPct = tbsAll.map(tb => { const v = t.rows && t.rows[tb] && t.rows[tb][ci]; return v == null ? null : {tb, v, pct: pctOfTarget(c, v)}; }).filter(Boolean).sort((a, b) => a.pct - b.pct);
     rows.forEach(r => { const v = t.rows && t.rows[r] && t.rows[r][ci]; if (v == null) return;
-      const pt = prev && prev.tables.find(x => x.title === t.title), pci = pt ? (pt.cols || []).findIndex(x => (x.g || '') === (c.g || '') && x.l === c.l) : -1;
-      const pv = pci >= 0 && pt.rows && pt.rows[r] ? pt.rows[r][pci] : null;
-      items.push({t, c, r, v, pv, pct: pctOfTarget(c, v)}); }); }));
-  items.sort((a, b) => a.pct - b.pct); const top = items.filter(x => x.pct < 1e6).slice(0, N);
+      items.push({t, c, r, v, pv: cell(prev, t, c, r), pct: pctOfTarget(c, v), worst: tbPct.slice(0, 3)}); }); }));
+  items.sort((a, b) => a.pct - b.pct); const top = items.filter(x => isFinite(x.pct)).slice(0, N);
   if (!top.length) return null;
-  const text = `### Рейтинг самых отстающих от цели показателей · ${agShort(last.period)} · ${rows.map(r => r === TOTAL ? 'ММБ (итого)' : r).join(', ')} (посчитано по всем отчетам; выполнение = % от цели)\n` +
-    top.map((x, i) => `${i + 1}. Отчет «${x.t.title}» · ${agColLabel(x.c)} · ${x.r === TOTAL ? 'ММБ' : x.r}: факт ${fmt(x.v, x.c.d)}, цель ${fmt(+x.c.t, x.c.d)}, выполнение ${fmt(x.pct, 1)}%${x.pv != null ? `; неделей ранее ${fmt(x.pv, x.c.d)}` : ''}`).join('\n');
+  const nm1 = r => r === TOTAL ? 'ММБ (итого)' : r;
+  const text = `### Рейтинг самых отстающих от цели показателей · ${agShort(last.period)} · ${rows.map(nm1).join(', ')} (посчитано по ВСЕМ отчетам; выполнение = % от цели; у каждого показателя указано, у каких ТБ он хуже всего)\n` +
+    top.map((x, i) => `${i + 1}. Показатель «${agColLabel(x.c)}» (отчет «${x.t.title}») · ${nm1(x.r)}: факт ${fmt(x.v, x.c.d)}, цель ${fmt(+x.c.t, x.c.d)}, выполнение ${fmt(x.pct, 1)}%${x.pv != null ? `; неделей ранее ${fmt(x.pv, x.c.d)}` : ''}. Хуже всего у ТБ: ${x.worst.map(w => `${w.tb} (${fmt(w.v, x.c.d)}, ${fmt(w.pct, 1)}%)`).join('; ')}`).join('\n');
   return {text, reports: [...new Set(top.map(x => x.t.title))], weeks: [agShort(last.period)].concat(prev ? [agShort(prev.period)] : [])};
 }
 
 async function agAsk(q){
   const digs = agDigs(); let plan = agPlan(q, digs);
-  const rankQ = /отста|худш|слаб|проблем|невыполн|не выполн|ниже цел|просел|хуже всего|горит/.test(String(q).toLowerCase()) && !plan.metricWords.filter(w => !/^(отста|показ|сильн|слаб|цел|худш|пробл|невып|выпол|больш|всего|горит|прос|хуже|ниже|самы|наибол)/.test(w)).length;
+  const rankQ = /отста|худш|слаб|проблем|невыполн|не выполн|ниже цел|просел|хуже всего|горит/.test(String(q).toLowerCase()) && !plan.metricWords.filter(w => !/^(тб|каки|терри|банк|отста|показ|сильн|слаб|цел|худш|пробл|невып|выпол|больш|всего|горит|прос|хуже|ниже|самы|наибол)/.test(w)).length;
   let rankCtx = null; if (rankQ) { try { rankCtx = agRankCtx(q, digs); } catch (e) { console.error(e); } }
   /* уточняющий вопрос («а в виде таблицы», «а по ЦЧБ», «за прошлую неделю») — берем показатели из прошлого вопроса */
   let followUp = false;
